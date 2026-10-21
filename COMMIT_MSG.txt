@@ -1,0 +1,30 @@
+fix(web/explore): report why discovery failed instead of "no readable output"
+
+A discovery run that produced no parseable stdout always reported "The
+scanner returned no readable output." That restates the symptom and drops
+the reason, which the child process had already printed on stderr.
+
+Three different failures reach that branch and an empty stdout is common to
+all of them, so the exit code and the stderr tail are what separate them:
+
+  1. The scanner crashed before printing anything. `npm ci` inside web/ does
+     not install the core's node_modules, so on a fresh setup every scanner
+     import of js-yaml throws ERR_MODULE_NOT_FOUND, stdout is empty and the
+     exit code is non-zero. The fix is one command in a different directory
+     and the old message gave no way to reach it.
+  2. The scanner was killed by the 230s SIGTERM this function arms. Retrying
+     the same search hits the same timeout, so the advice has to be to
+     narrow it.
+  3. The scanner exited cleanly but stdout was not the JSON object the
+     --json contract promises. The defensive case, which keeps the original
+     copy.
+
+close() discarded its exit code entirely, and errBuf is a line-splitting
+cursor rather than a buffer -- each chunk pops completed lines and reassigns
+the remainder, so a stack trace is gone by close. This captures the code and
+a bounded raw stderr tail, and moves the wording into
+web/src/lib/scanner-failure.mjs so the classifier is testable without a TS
+runner, matching the explore-error.mjs pattern.
+
+Tests: web/tests/lib/scanner-failure.test.mjs (7 cases). Full web suite
+passes at 504.
